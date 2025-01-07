@@ -1,0 +1,232 @@
+type AddRegistryItemPayload = record {
+  name : text;
+  description : text;
+  wedding_id : nat64;
+  price : nat64;
+};
+type ApproveRsvpPayload = record {
+  table_assignment : TableAssignment;
+  wedding_id : nat64;
+  guest_email : text;
+};
+type Category = variant {
+  Attire;
+  Favors;
+  Cake;
+  Decor;
+  Catering;
+  Stationery;
+  Music;
+  Venue;
+  Other;
+  Beauty;
+  Planning;
+  Photography;
+  Transport;
+};
+type CreateWeddingPayload = record {
+  date : text;
+  couple_names : vec text;
+  guest_count : nat64;
+  budget : nat64;
+  location : text;
+};
+type DeleteRegistryItemPayload = record {
+  item_name : text;
+  wedding_id : nat64;
+};
+type DeleteTaskPayload = record { task_id : nat64; wedding_id : nat64 };
+type Guest = record {
+  name : text;
+  rsvp_status : text;
+  table_assignment : TableAssignment;
+  dietary_restrictions : text;
+  plus_one : bool;
+  guest_email : text;
+};
+type GuestRsvpPayload = record {
+  name : text;
+  dietary_restrictions : text;
+  wedding_id : nat64;
+  plus_one : bool;
+  guest_email : text;
+};
+type Message = variant {
+  Error : text;
+  WeddingNotFound : text;
+  InvalidInput : text;
+  VendorNotFound : text;
+  NoTimeLineItemsFound : text;
+  Success : text;
+  InvalidDate : text;
+  DateUnavailable : text;
+  UnauthorizedAction : text;
+  BudgetExceeded : text;
+};
+type RegisterVendorPayload = record {
+  portfolio : vec text;
+  service_cost : nat64;
+  name : text;
+  description : text;
+  availability : vec text;
+  category : Category;
+};
+type RegistryItem = record {
+  status : text;
+  purchased_by : text;
+  name : text;
+  description : text;
+  price : nat64;
+};
+type Result = variant {
+  Ok : record { text; RegistryItem; Wedding };
+  Err : Message;
+};
+type Result_1 = variant { Ok : record { text; Task; Wedding }; Err : Message };
+type Result_10 = variant { Ok : nat64; Err : Message };
+type Result_11 = variant { Ok : text; Err : Message };
+type Result_12 = variant { Ok : RegistryItem; Err : Message };
+type Result_13 = variant { Ok : vec RegistryItem; Err : Message };
+type Result_14 = variant { Ok : Task; Err : Message };
+type Result_15 = variant { Ok : vec Task; Err : Message };
+type Result_16 = variant { Ok : Vendor; Err : Message };
+type Result_17 = variant { Ok : Wedding; Err : Message };
+type Result_18 = variant { Ok : vec TimelineItem; Err : Message };
+type Result_19 = variant { Ok : record { Vendor; Message }; Err : Message };
+type Result_2 = variant {
+  Ok : record { text; TimelineItem; Wedding };
+  Err : Message;
+};
+type Result_20 = variant {
+  Ok : record { VendorBooking; Message };
+  Err : Message;
+};
+type Result_3 = variant { Ok : record { text; Guest; Wedding }; Err : Message };
+type Result_4 = variant {
+  Ok : record { text; Wedding; Vendor; VendorBooking };
+  Err : Message;
+};
+type Result_5 = variant { Ok : record { Wedding; Message }; Err : Message };
+type Result_6 = variant { Ok : vec Vendor; Err : Message };
+type Result_7 = variant { Ok : vec Wedding; Err : Message };
+type Result_8 = variant { Ok : Guest; Err : Message };
+type Result_9 = variant { Ok : vec Guest; Err : Message };
+type Review = record {
+  date : text;
+  author : principal;
+  comment : text;
+  rating : nat64;
+};
+type TableAssignment = variant {
+  Unassigned;
+  Table : nat8;
+  VIPTable;
+  FamilyTable;
+};
+type Task = record {
+  id : nat64;
+  status : text;
+  title : text;
+  description : text;
+  deadline : text;
+  assigned_to : text;
+  budget : nat64;
+};
+type TaskPayload = record {
+  title : text;
+  description : text;
+  deadline : text;
+  assigned_to : text;
+  wedding_id : nat64;
+  budget : nat64;
+};
+type TimelineItem = record {
+  status : text;
+  time : text;
+  description : text;
+  responsible : text;
+  wedding_id : nat64;
+};
+type UpdateRegistryItemStatusPayload = record {
+  status : text;
+  purchased_by : text;
+  item_name : text;
+  wedding_id : nat64;
+};
+type UpdateTaskStatusPayload = record {
+  status : text;
+  task_id : nat64;
+  wedding_id : nat64;
+};
+type Vendor = record {
+  id : nat64;
+  portfolio : vec text;
+  verified : bool;
+  reviews : vec Review;
+  service_cost : nat64;
+  bookings : vec text;
+  owner : principal;
+  name : text;
+  description : text;
+  availability : vec text;
+  category : Category;
+  rating : nat64;
+};
+type VendorBooking = record {
+  status : text;
+  date : text;
+  additional_details : opt text;
+  wedding_id : nat64;
+  wedding_offer : nat64;
+  vendor_id : nat64;
+};
+type VendorBookingPayload = record {
+  additional_details : opt text;
+  wedding_id : nat64;
+  wedding_offer : nat64;
+  vendor_id : nat64;
+};
+type Wedding = record {
+  id : nat64;
+  status : text;
+  tasks : vec Task;
+  vendors : vec VendorBooking;
+  date : text;
+  guest_list : vec Guest;
+  couple_names : vec text;
+  guest_count : nat64;
+  budget : nat64;
+  registry : vec RegistryItem;
+  location : text;
+  timeline : vec TimelineItem;
+};
+service : {
+  add_registry_item : (AddRegistryItemPayload) -> (Result);
+  add_task : (TaskPayload) -> (Result_1);
+  add_timeline_item : (TimelineItem) -> (Result_2);
+  approve_rsvp : (ApproveRsvpPayload) -> (Result_3);
+  book_vendor : (VendorBookingPayload) -> (Result_4);
+  create_wedding : (CreateWeddingPayload) -> (Result_5);
+  delete_registry_item : (DeleteRegistryItemPayload) -> (Result);
+  delete_task : (DeleteTaskPayload) -> (Result_1);
+  get_all_vendors : () -> (Result_6) query;
+  get_all_weddings : () -> (Result_7) query;
+  get_guest_details : (nat64, text) -> (Result_8) query;
+  get_guest_list : (nat64) -> (Result_9) query;
+  get_guest_rsvp_count : (nat64) -> (Result_10) query;
+  get_guest_rsvp_status : (nat64, text) -> (Result_11) query;
+  get_registry_item_details : (nat64, text) -> (Result_12) query;
+  get_registry_items : (nat64) -> (Result_13) query;
+  get_task_details : (nat64, nat64) -> (Result_14) query;
+  get_task_list : (nat64) -> (Result_15) query;
+  get_vendor_details : (nat64) -> (Result_16) query;
+  get_wedding_details : (nat64) -> (Result_17) query;
+  get_wedding_timeline : (nat64) -> (Result_18) query;
+  guest_rsvp : (GuestRsvpPayload) -> (Result_3);
+  register_vendor : (RegisterVendorPayload) -> (Result_19);
+  search_vendors_by_category : (Category) -> (Result_6) query;
+  update_registry_item_status : (UpdateRegistryItemStatusPayload) -> (Result);
+  update_task_status : (UpdateTaskStatusPayload) -> (Result_1);
+  verify_vendor : (nat64) -> (Result_19);
+  verify_vendor_booking : (nat64, nat64) -> (Result_20);
+}
