@@ -339,13 +339,12 @@ enum Message {
 
 // Generate UUID
 fn generate_uuid() -> u64 {
-    let id = ID_COUNTER.with(|counter| {
-        let current_id = *counter.borrow().get(); // Use the binding to get the current ID
-        let _ = counter.borrow_mut().set(current_id + 1); // Now you can safely mutate the counter
-        current_id // Return the current_id
-    });
-
-    id
+    ID_COUNTER.with(|counter| {
+        let mut counter = counter.borrow_mut();
+        let current_id = *counter.get(); // Dereference the reference to get the value
+        counter.set(current_id + 1).expect("Failed to update ID counter");
+        current_id
+    })
 }
 
 /**
@@ -358,14 +357,12 @@ fn generate_uuid() -> u64 {
 
 #[ic_cdk::update]
 fn register_vendor(payload: RegisterVendorPayload) -> Result<(Vendor, Message), Message> {
-    // Validate the user input to ensure all required fields are provided
-    if payload.name.is_empty() && payload.description.is_empty() && payload.service_cost == 0 {
+    if payload.name.is_empty() || payload.description.is_empty() || payload.service_cost == 0 {
         return Err(Message::InvalidInput(
-            "Ensure all required fileds are provided.".to_string(),
+            "Name, description, and service cost are required.".to_string(),
         ));
     }
 
-    // Generate a unique ID for the vendor
     let vendor_id = generate_uuid();
 
     let vendor = Vendor {
@@ -383,7 +380,6 @@ fn register_vendor(payload: RegisterVendorPayload) -> Result<(Vendor, Message), 
         portfolio: payload.portfolio,
     };
 
-    // Store vendor in VENDOR_STORAGE
     VENDOR_STORAGE.with(|vendors| {
         vendors.borrow_mut().insert(vendor_id, vendor.clone());
     });
@@ -393,6 +389,7 @@ fn register_vendor(payload: RegisterVendorPayload) -> Result<(Vendor, Message), 
         Message::Success("Vendor registered successfully".to_string()),
     ))
 }
+
 
 // Book Vendor for Wedding
 #[ic_cdk::update]
@@ -823,21 +820,21 @@ fn guest_rsvp(payload: GuestRsvpPayload) -> Result<(String, Guest, Wedding), Mes
 // Guest RSVP Approval and Table Assignment
 #[ic_cdk::update]
 fn approve_rsvp(payload: ApproveRsvpPayload) -> Result<(String, Guest, Wedding), Message> {
-    // Fetch the wedding from storage
-    let wedding = WEDDING_STORAGE.with(|storage| storage.borrow().get(&payload.wedding_id));
+    // Use WEDDING_STORAGE to retrieve the wedding data
+    let mut wedding = WEDDING_STORAGE.with(|storage| {
+        storage
+            .borrow()
+            .get(&payload.wedding_id)
+            .map(|w| w.clone()) // Explicitly clone the Wedding object
+            .ok_or_else(|| {
+                Message::WeddingNotFound(format!(
+                    "Wedding with ID {} not found",
+                    payload.wedding_id
+                ))
+            })
+    })?;
 
-    // Validate wedding existence
-    let wedding = match wedding {
-        Some(wedding) => wedding.clone(),
-        None => {
-            return Err(Message::WeddingNotFound(format!(
-                "Wedding with ID {} not found",
-                payload.wedding_id
-            )))
-        }
-    };
-
-    // Confirm if there is still available seating capacity
+    // Calculate confirmed guests and check seating capacity
     let confirmed_guests = wedding
         .guest_list
         .iter()
@@ -845,70 +842,168 @@ fn approve_rsvp(payload: ApproveRsvpPayload) -> Result<(String, Guest, Wedding),
         .fold(0, |count, guest| count + if guest.plus_one { 2 } else { 1 });
 
     if confirmed_guests >= wedding.guest_count as usize {
-        // Check if there's only one seat left, but the guest is bringing a plus one
-        if wedding.guest_count as usize - confirmed_guests == 1 {
-            return Err(Message::Error(
-                "Only one seat is available, but a plus one is requested".to_string(),
-            ));
-        }
         return Err(Message::BudgetExceeded(
-            "Guest count exceeds the available seats".to_string(),
+            "Available seats exceeded the wedding limit.".to_string(),
         ));
     }
 
-    // Check if the guest already exists
-    let guest = wedding
+    // Find the guest in the guest list
+    let guest_index = wedding
         .guest_list
         .iter()
-        .find(|guest| guest.guest_email == payload.guest_email);
+        .position(|guest| guest.guest_email == payload.guest_email);
 
-    let guest = match guest {
-        Some(guest) => guest.clone(),
+    let guest_index = match guest_index {
+        Some(index) => index,
         None => {
-            return Err(Message::Error("Guest not found".to_string()));
+            return Err(Message::Error(
+                "Guest not found in the RSVP list.".to_string(),
+            ));
         }
     };
 
-    // Update the guest's RSVP status and table assignment
-    let mut updated_guest = guest.clone();
-    updated_guest.rsvp_status = "confirmed".to_string();
-    updated_guest.table_assignment = payload.table_assignment.clone();
+    // Update guest details
+    wedding.guest_list[guest_index].rsvp_status = "confirmed".to_string();
+    wedding.guest_list[guest_index].table_assignment = payload.table_assignment.clone();
 
-    // Update the wedding's guest list
-    let mut updated_wedding = wedding.clone();
-    updated_wedding.guest_list = updated_wedding
-        .guest_list
-        .iter()
-        .map(|guest| {
-            if guest.guest_email == payload.guest_email {
-                updated_guest.clone()
-            } else {
-                guest.clone()
-            }
-        })
-        .collect();
-
-    // Update the available seats -1 if plus one is false
-    if !guest.plus_one {
-        updated_wedding.guest_count -= 1;
-    } else {
-        updated_wedding.guest_count -= 2;
-    }
-
-    // Save the updated wedding details
+    // Save the updated wedding data back to storage
     WEDDING_STORAGE.with(|storage| {
         storage
             .borrow_mut()
-            .insert(payload.wedding_id, updated_wedding.clone());
+            .insert(payload.wedding_id, wedding.clone());
     });
 
-    // Return success
+    // Return success message along with updated guest and wedding
     Ok((
-        "RSVP approved and table assigned successfully".to_string(),
-        updated_guest,
-        updated_wedding,
+        "RSVP approved successfully".to_string(),
+        wedding.guest_list[guest_index].clone(),
+        wedding,
     ))
 }
+
+// New Functions 
+
+#[ic_cdk::update]
+fn update_vendor_availability(vendor_id: u64, new_availability: Vec<String>) -> Result<Message, Message> {
+    VENDOR_STORAGE.with(|storage| {
+        let mut vendors = storage.borrow_mut();
+        let vendor = vendors.get(&vendor_id);
+
+        let mut vendor = vendor.ok_or_else(|| {
+            Message::VendorNotFound(format!(
+                "Vendor with ID {} not found",
+                vendor_id
+            ))
+        })?;
+
+        vendor.availability = new_availability;
+
+        vendors.insert(vendor_id, vendor);
+
+        Ok(Message::Success(
+            "Vendor availability updated successfully".to_string(),
+        ))
+    })
+}
+
+// Search By wedding Date
+
+#[ic_cdk::query]
+fn search_weddings_by_date(date: String) -> Result<Vec<Wedding>, Message> {
+    WEDDING_STORAGE.with(|storage| {
+        let weddings: Vec<Wedding> = storage
+            .borrow()
+            .iter()
+            .filter_map(|(_, wedding)| {
+                if wedding.date == date {
+                    Some(wedding.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        if weddings.is_empty() {
+            Err(Message::WeddingNotFound(format!(
+                "No weddings found on date: {}",
+                date
+            )))
+        } else {
+            Ok(weddings)
+        }
+    })
+}
+
+
+// Cancel Wedding Boking
+#[ic_cdk::update]
+fn cancel_vendor_booking(wedding_id: u64, vendor_id: u64) -> Result<Message, Message> {
+    WEDDING_STORAGE.with(|storage| {
+        let mut weddings = storage.borrow_mut();
+        let wedding = weddings.get(&wedding_id);
+
+        let mut wedding = wedding.ok_or_else(|| {
+            Message::WeddingNotFound(format!(
+                "Wedding with ID {} not found",
+                wedding_id
+            ))
+        })?;
+
+        let original_count = wedding.vendors.len();
+        wedding.vendors.retain(|booking| booking.vendor_id != vendor_id);
+
+        if wedding.vendors.len() == original_count {
+            return Err(Message::VendorNotFound(format!(
+                "Vendor with ID {} not booked for this wedding",
+                vendor_id
+            )));
+        }
+
+        weddings.insert(wedding_id, wedding);
+
+        Ok(Message::Success(
+            "Vendor booking canceled successfully".to_string(),
+        ))
+    })
+}
+
+// Mark Timeline Item as Completed
+#[ic_cdk::update]
+fn mark_timeline_item_completed(wedding_id: u64, time: String) -> Result<Message, Message> {
+    WEDDING_STORAGE.with(|storage| {
+        let mut weddings = storage.borrow_mut();
+        let wedding = weddings.get(&wedding_id);
+
+        let mut wedding = wedding.ok_or_else(|| {
+            Message::WeddingNotFound(format!(
+                "Wedding with ID {} not found",
+                wedding_id
+            ))
+        })?;
+
+        let mut updated = false;
+        for item in wedding.timeline.iter_mut() {
+            if item.time == time {
+                item.status = "completed".to_string();
+                updated = true;
+            }
+        }
+
+        if !updated {
+            return Err(Message::Error(format!(
+                "No timeline item found with time: {}",
+                time
+            )));
+        }
+
+        weddings.insert(wedding_id, wedding);
+
+        Ok(Message::Success(
+            "Timeline item marked as completed successfully".to_string(),
+        ))
+    })
+}
+
 
 /*
  * Guest Queries
